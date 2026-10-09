@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: affiliate
+      POSTGRES_PASSWORD: affiliate
+      POSTGRES_DB: affiliate
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U affiliate"]
+      interval: 5s
+      retries: 10
+  app:
+    build: { context: ., dockerfile: infrastructure/docker/Dockerfile }
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql+psycopg2://affiliate:affiliate@db:5432/affiliate
+      SECRET_KEY: ${SECRET_KEY:-change-me-to-a-long-random-string-0123456789}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-change-me-webhook-secret}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8000}
+    ports: ["8000:8000"]
+  scheduler:   # month-end payout batch generation (runs daily check on the last day of the month)
+    build: { context: ., dockerfile: infrastructure/docker/Dockerfile }
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql+psycopg2://affiliate:affiliate@db:5432/affiliate
+      SECRET_KEY: ${SECRET_KEY:-change-me-to-a-long-random-string-0123456789}
+    command: >
+      sh -c 'while true; do
+      if [ "$$(date -d tomorrow +%d)" = "01" ]; then python -m app.workers.monthly; fi;
+      sleep 86400; done'
+volumes:
+  pgdata:
